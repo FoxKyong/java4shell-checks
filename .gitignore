@@ -1,0 +1,20 @@
+# Compiled test class (the script embeds it as base64; rebuild from B64Tail.java)
+*.class
+
+# Backups and editor leftovers
+*.bak
+*~
+*.swp
+
+# Never commit check output from real hosts (host names, container names, versions)
+*.log
+*-output.txt
+*-results.txt
+hosts.txt
+
+# Keys and tokens
+*.key
+*.pem
+*.crt
+*.token
+.env
