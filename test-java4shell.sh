@@ -20,7 +20,8 @@
 #
 # Exit code: 0 = nothing vulnerable, 1 = vulnerable runtime installed but no running JVM exposed,
 #            2 = a running JVM uses a vulnerable runtime without mitigation,
-#            3 = nothing vulnerable found, but some runtime could not be tested.
+#            3 = nothing vulnerable found, but some runtime could not be tested,
+#            4 = could not create a temp directory.
 #
 # Source of the embedded class: B64Tail.java (javac --release 8, runs on Java 8+). After a JIT
 # warm-up it decodes "A" x {64,128,256} + {"=", "==", "A=", "AA="} into canary-filled arrays and
@@ -125,7 +126,7 @@ run_test() {
         for t in /tmp /dev/shm /var/tmp; do
             d=$(mktemp -d "$root$t/j4s.XXXXXX" 2>/dev/null) && break
         done
-        [ -n "$d" ] || { say "ERR nelze zapsat do /tmp, /dev/shm ani /var/tmp kontejneru"; return; }
+        [ -n "$d" ] || { say "ERR cannot write to /tmp, /dev/shm or /var/tmp in the container"; return; }
         cp "$W/B64Tail.class" "$d/"
         out=$(timeout $TIMEOUT nsenter -t "$pid" -m -r -w -- "$java" $OPTS_TEST "$@" -cp "${d#"$root"}" B64Tail 2>&1)
         rm -rf "$d"
