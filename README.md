@@ -119,12 +119,21 @@ compiler versions produce different bytes and a different hash.
   Debian 21.0.12.1 runtime on the host were reported vulnerable, and the
   re-test with `-XX:-UseBASE64Intrinsics` came out clean for all of them. The
   Java 17 runtime had been missed by a 64-character-only probe.
+- ✅ **Verified** through a Debian package update on an AMD EPYC 9135 host,
+  from `openjdk-21` 21.0.13 to the fixed 21.0.13.1 (DSA-6639-1), with two
+  host JVMs running with `-XX:-UseBASE64Intrinsics`:
+  - before the update: runtime `VULNERABLE`, both JVMs `MITIGATED`;
+  - after the update, before the restart: installed runtime `OK`, both JVMs
+    reported as still running the replaced `libjvm.so`, `MITIGATED` until
+    restarted;
+  - after the restart: both JVMs on 21.0.13.1 `OK`.
+
+  This confirms that a fixed build on an AVX-512 VBMI CPU reports `OK`.
 - ✅ **Verified** on a CPU without AVX-512 (AMD Zen 3) with Temurin 17.0.21.1:
   `OK`, detection of a replaced `libjvm.so` and ignoring of inherited JVM
   options.
-- 📝 **Not yet verified**: a *fixed* build on an AVX-512 VBMI CPU reporting
-  `OK`, a Java 8 runtime, the `-XX:UseAVX=2` path, Podman / LXC / Kubernetes
-  containers.
+- 📝 **Not yet verified**: a Java 8 runtime, the `-XX:UseAVX=2` path,
+  Podman / LXC / Kubernetes containers.
 
 ## Responsible use
 
