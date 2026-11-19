@@ -39,7 +39,7 @@ host=$(hostname -f 2>/dev/null || uname -n)
 uid=$(id -u)
 
 say() { printf '%s\n' "$*"; }
-[ "$uid" = 0 ] || say "POZOR: neběží pod rootem — procesy jiných uživatelů a kontejnery se nemusí zkontrolovat."
+[ "$uid" = 0 ] || say "WARNING: not running as root - processes of other users and containers may be missed."
 
 W=$(mktemp -d /tmp/j4s.XXXXXX) || exit 4
 trap 'rm -rf "$W"' EXIT
@@ -103,14 +103,14 @@ done
 say "== $host"
 say "CPU: ${model:-?} ($arch)"
 if [ "$arch" != x86_64 ]; then
-    cpu="ne (není x86-64)"
+    cpu="no (not x86-64)"
 elif [ -n "$miss" ]; then
-    cpu="ne (chybí:$miss)"
+    cpu="no (missing:$miss)"
 else
-    cpu="ANO (avx512f avx512bw avx512vbmi bmi2)"
+    cpu="YES (avx512f avx512bw avx512vbmi bmi2)"
 fi
-say "CPU umožňuje chybu: $cpu"
-case $cpu in ne*) say "  Pozn.: u VM to závisí na CPU hostitele a nastavení (EVC, CPU model); po migraci se to může změnit.";; esac
+say "CPU can run the vulnerable code: $cpu"
+case $cpu in no*) say "  Note: in a VM this depends on the host CPU and settings (EVC, CPU model); it can change after a migration.";; esac
 
 # ---------- helpers ----------
 # run_test <pid|-> <java-path-in-that-namespace> [jvm options...]  -> prints "VULNERABLE n ver vendor" / "OK ..." / "ERR ..."
@@ -137,15 +137,15 @@ run_test() {
 }
 verdict() {   # human readable verdict of run_test output
     case $1 in
-        VULNERABLE*) say "ZRANITELNÁ";;
-        OK*)         say "v pořádku";;
-        *)           say "netestováno (${1#ERR })";;
+        VULNERABLE*) say "VULNERABLE";;
+        OK*)         say "OK";;
+        *)           say "not tested (${1#ERR })";;
     esac
 }
 
 # ---------- 2. installed runtimes ----------
 say ""
-say "-- Nainstalované Javy (test spuštěním)"
+say "-- Installed Java runtimes (tested by running them)"
 declare -A cache=()   # "<pid|->:<java>" -> run_test result, reused for running JVMs
 cands=$( { command -v java 2>/dev/null
            ls -d /usr/lib/jvm/*/bin/java /usr/lib/jvm/*/jre/bin/java /usr/java/*/bin/java 2>/dev/null
@@ -158,14 +158,14 @@ while IFS= read -r j; do
     r=$(run_test - "$j" </dev/null)
     cache["-:$j"]=$r
     set -- $r
-    case ${1:-} in OK|VULNERABLE) say "  $j: $(verdict "$r") — Java $3 ${4:-}";; *) say "  $j: $(verdict "$r")";; esac
+    case ${1:-} in OK|VULNERABLE) say "  $j: $(verdict "$r") - Java $3 ${4:-}";; *) say "  $j: $(verdict "$r")";; esac
     case ${1:-} in VULNERABLE) inst_vuln=$((inst_vuln + 1));; OK) ;; *) untested=$((untested + 1));; esac
 done <<<"$cands"
-[ -z "$cands" ] && say "  žádná nenalezena"
+[ -z "$cands" ] && say "  none found"
 
 # ---------- 3. running JVMs ----------
 say ""
-say "-- Běžící JVM"
+say "-- Running JVMs"
 nrun=0; run_bad=0
 for d in /proc/[0-9]*; do
     pid=${d#/proc/}
@@ -184,7 +184,7 @@ for d in /proc/[0-9]*; do
         if [ -n "$id" ]; then
             for e in docker podman; do command -v $e >/dev/null && name=$($e inspect -f '{{.Name}}' "$id" 2>/dev/null) && [ -n "$name" ] && break; done
         fi
-        where="kontejner ${name:-${cid:-(jiný kořen / mount namespace)}}"; tpid=$pid
+        where="container ${name:-${cid:-(other root / mount namespace)}}"; tpid=$pid
         # maps shows the library path as seen from our root; inside the target root strip its prefix
         rp=$(readlink "$d/root" 2>/dev/null)
         case $rp in ""|/) ;; *) case $java in "$rp"/*) java=${java#"$rp"};; esac;; esac
@@ -204,18 +204,18 @@ for d in /proc/[0-9]*; do
     mit=""; mit_src=""
     [ "$b64" = -XX:-UseBASE64Intrinsics ] && { mit="$b64"; mit_src=$b64_src; }
     case $avx in -XX:UseAVX=[012]) mit="${mit:+$mit }$avx"; mit_src="${mit_src:+$mit_src, }$avx_src";; esac
-    mit_src=${mit_src//cmdline/příkazová řádka}
-    [ -z "$env" ] && [ "$uid" != 0 ] && say "    (prostředí procesu nečitelné — spusť pod rootem)"
+    mit_src=${mit_src//cmdline/command line}
+    [ -z "$env" ] && [ "$uid" != 0 ] && say "    (process environment not readable - run as root)"
     # updated on disk but not restarted: the process still runs the old, deleted libjvm.so
     if grep -q '/libjvm\.so (deleted)$' "$d/maps" 2>/dev/null; then
-        say "    runtime $java: libjvm.so byl od startu procesu nahrazen (aktualizace bez restartu), běží stará verze"
+        say "    runtime $java: libjvm.so was replaced since the process started (updated without restart), the old version is still running"
         if [ -n "$mit" ]; then
-            say "    ochrana: $mit (z: $mit_src; neověřeno testem) ⇒ ZMÍRNĚNO, restartem se načte nová Java"
-        elif [ "${cpu%% *}" = ANO ]; then
-            say "    ochrana: žádná ⇒ NECHRÁNĚNO, dokud se proces nerestartuje"
+            say "    mitigation: $mit (from: $mit_src; not verified by test) => MITIGATED, a restart loads the new Java"
+        elif [ "${cpu%% *}" = YES ]; then
+            say "    mitigation: none => UNPROTECTED until the process is restarted"
             run_bad=$((run_bad + 1))
         else
-            say "    ochrana: žádná, CPU ale chybu neumožňuje — restartuj při nejbližší příležitosti"
+            say "    mitigation: none, but the CPU cannot run the vulnerable code - restart at the next opportunity"
         fi
         continue
     fi
@@ -229,30 +229,30 @@ for d in /proc/[0-9]*; do
         if [ -n "$mit" ]; then
             r2=$(run_test "$tpid" "$java" $mit)
             case $r2 in
-                OK*) say "    ochrana: $mit (z: $mit_src) → s ní test v pořádku ⇒ ZMÍRNĚNO";;
-                *)   say "    ochrana: $mit (z: $mit_src) → test s ní: $r2 ⇒ NECHRÁNĚNO"; run_bad=$((run_bad + 1));;
+                OK*) say "    mitigation: $mit (from: $mit_src) -> test with it OK => MITIGATED";;
+                *)   say "    mitigation: $mit (from: $mit_src) -> test with it: $r2 => UNPROTECTED"; run_bad=$((run_bad + 1));;
             esac
         else
-            say "    ochrana: žádná (-XX:-UseBASE64Intrinsics chybí) ⇒ NECHRÁNĚNO"
+            say "    mitigation: none (-XX:-UseBASE64Intrinsics missing) => UNPROTECTED"
             run_bad=$((run_bad + 1))
         fi
     elif [ "$1" = ERR ]; then
-        say "    ochrana: ${mit:-žádná}${mit:+ (z: $mit_src)}; runtime nešlo otestovat — posuď podle verze (zranitelné jsou OpenJDK 17.0.6+, 21, 25 a 27 bez opravy z 17. 11. 2026)"
+        say "    mitigation: ${mit:-none}${mit:+ (from: $mit_src)}; runtime could not be tested - judge by version (vulnerable: OpenJDK 17.0.6+, 21, 25 and 27 without the 2026-11-17 fix)"
         untested=$((untested + 1))
     fi
 done
-[ $nrun = 0 ] && say "  žádná neběží"
+[ $nrun = 0 ] && say "  none running"
 
 # ---------- summary ----------
 [ $untested -gt 0 ] && rc=3
 [ $inst_vuln -gt 0 ] && rc=1
 [ $run_bad -gt 0 ] && rc=2
 say ""
-say "SOUHRN $host: CPU ${cpu%% *}; zranitelných nainstalovaných Jav: $inst_vuln; běžících JVM: $nrun, z toho nechráněných: $run_bad; neotestováno: $untested"
+say "SUMMARY $host: CPU ${cpu%% *}; vulnerable installed runtimes: $inst_vuln; running JVMs: $nrun, unprotected: $run_bad; not tested: $untested"
 case $rc in
-    0) say "VÝSLEDEK: v pořádku";;
-    3) say "VÝSLEDEK: nic zranitelného nenalezeno, ale $untested runtime nešlo otestovat — zkontroluj je ručně";;
-    1) say "VÝSLEDEK: zranitelná Java je nainstalovaná, žádná běžící JVM ale ohrožená není";;
-    2) say "VÝSLEDEK: OHROŽENO — doplň -XX:-UseBASE64Intrinsics a restartuj (nebo nasaď opravenou Javu)";;
+    0) say "RESULT: OK";;
+    3) say "RESULT: nothing vulnerable found, but $untested runtime(s) could not be tested - check them by hand";;
+    1) say "RESULT: a vulnerable Java is installed, but no running JVM is exposed";;
+    2) say "RESULT: EXPOSED - add -XX:-UseBASE64Intrinsics and restart (or deploy a fixed Java)";;
 esac
 exit $rc

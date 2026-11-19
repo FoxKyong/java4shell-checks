@@ -37,12 +37,18 @@ bash test-java4shell.sh          # only what the current user can see
    is tested inside its mount namespace; then the process' effective options
    (`JAVA_TOOL_OPTIONS`, `JDK_JAVA_OPTIONS`, command line, `_JAVA_OPTIONS`,
    last wins) are checked for a stopgap, and the runtime is re-tested with it.
-   The output names where the flag came from, so a `ZMÍRNĚNO` verdict can be
+   The output names where the flag came from, so a `MITIGATED` verdict can be
    checked by hand.
 
-Output is in Czech. Verdicts: `ZRANITELNÁ` (vulnerable), `v pořádku` (OK),
-`ZMÍRNĚNO` (vulnerable runtime, stopgap active), `NECHRÁNĚNO` (vulnerable,
-no stopgap).
+Verdicts: `VULNERABLE` / `OK` per runtime; for running JVMs on a vulnerable
+runtime `MITIGATED` (stopgap active and confirmed by the re-test) or
+`UNPROTECTED`. Example for one container:
+
+```
+  PID 12345 (root, container /keycloak): /opt/java/openjdk/bin/java -Dkc.config.built=true ...
+    runtime /opt/java/openjdk/bin/java (Java 21.0.5 Eclipse_Adoptium): VULNERABLE
+    mitigation: -XX:-UseBASE64Intrinsics (from: command line) -> test with it OK => MITIGATED
+```
 
 | Exit code | Meaning |
 |---|---|
